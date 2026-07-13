@@ -2,7 +2,18 @@
 
 Automated payment gateway using [Tako.id](https://tako.id) donation page + Discord webhook as indirect payment callback.
 
-> **🤖 For AI Agents**: If someone asks you to install this project, read **[CLAUDE.md](CLAUDE.md)** — it contains step-by-step installation instructions optimized for AI assistants.
+## 🤖 Install with AI
+
+Copy this prompt to ChatGPT, Claude, or any AI coding assistant:
+
+```
+Install the Tako Payment Gateway from https://github.com/aldirahmanhh/takoPayment.
+Follow the AI installation guide at CLAUDE.md for setup instructions.
+Create a .env file with the tokens and IDs I'll provide.
+Set up the database and seed a sample product, then start the server.
+```
+
+The AI will read `CLAUDE.md`, ask for your Discord token and channel ID, configure everything, and start the server automatically.
 
 ## Architecture
 
