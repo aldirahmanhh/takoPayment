@@ -15,8 +15,6 @@ flowchart LR
     A -.->|🔄 Poll GET<br/>/api/orders/:id| B
 ```
 
-### Payment Flow
-
 ## Features
 
 - **Checkout flow** — user picks product, gets unique payment code (`ORD-XXXXXX`), donates on Tako with that code
