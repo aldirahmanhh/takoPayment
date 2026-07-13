@@ -133,34 +133,40 @@ npm start
 | `GET` | `/api/orders/:id` | JWT | Get order status (for polling) |
 | `POST` | `/api/internal/tako-callback` | Internal Key | Discord bot → backend |
 
-## Use as a Library
+## Use in Another Project
 
-You can install this as an npm package and mount it in any Express app:
+Install directly from GitHub:
+
+```bash
+npm install github:aldirahmanhh/takoPayment
+```
+
+Then mount in your Express app:
 
 ```js
 const express = require('express');
 const { createPaymentGateway } = require('@anrizz/bot-payment');
-
-const app = express();
-app.use('/api', createPaymentGateway({
-  JWT_SECRET: process.env.JWT_SECRET,
-  INTERNAL_API_KEY: process.env.INTERNAL_API_KEY,
-}));
-
-app.listen(3000);
-```
-
-### Running the Discord Bot Separately
-
-```js
 const { createDiscordBot } = require('@anrizz/bot-payment/lib/bot');
 
-createDiscordBot({
-  DISCORD_TOKEN: process.env.DISCORD_TOKEN,
-  TAKO_WEBHOOK_CHANNEL_ID: process.env.TAKO_WEBHOOK_CHANNEL_ID,
-  INTERNAL_API_KEY: process.env.INTERNAL_API_KEY,
-  BACKEND_URL: 'http://localhost:3000',
+const app = express();
+app.use('/api', createPaymentGateway());
+
+app.listen(3000, () => {
+  // Start Discord bot
+  createDiscordBot();
 });
+```
+
+Or clone and use as a standalone server:
+
+```bash
+git clone https://github.com/aldirahmanhh/takoPayment.git
+cd takoPayment
+npm install
+cp .env.example .env
+# edit .env with your config
+npx prisma db push
+npm start
 ```
 
 ## Project Structure
