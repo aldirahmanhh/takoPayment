@@ -4,6 +4,10 @@ Automated payment gateway using [Tako.id](https://tako.id) donation page + Disco
 
 ## Architecture
 
+> Open **`docs/architecture.excalidraw`** in [Excalidraw](https://excalidraw.com) to view and edit the interactive diagram.
+
+The architecture diagram shows 6 boxes (User, Backend, Tako, Discord, Bot, Database) with numbered arrows illustrating the full payment flow.
+
 ```
 User Checkout (Frontend) → Backend API → User donates on Tako
                                           ↓
@@ -218,4 +222,8 @@ createDiscordBot({
 
 ## License
 
-ISC
+GNU GPL v3 — see [LICENSE](LICENSE) for full text.
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License. Anyone using, modifying, or distributing this code must keep the original copyright notice and license intact.
+
+© 2026 anrizz

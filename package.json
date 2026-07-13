@@ -15,7 +15,7 @@
   },
   "keywords": ["tako", "payment", "gateway", "discord", "webhook"],
   "author": "anrizz",
-  "license": "ISC",
+  "license": "GPL-3.0",
   "dependencies": {
     "@prisma/client": "^5.22.0",
     "bcryptjs": "^3.0.3",
