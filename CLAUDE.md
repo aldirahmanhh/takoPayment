@@ -37,8 +37,8 @@ TAKO_WEBHOOK_CHANNEL_ID= # from user
 JWT_SECRET=              # generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 INTERNAL_API_KEY=        # generate another random string
 DATABASE_URL="file:./dev.db"
-TAKO_CREATOR_USERNAME=anrizz
-TAKO_URL=https://tako.id/anrizz
+TAKO_CREATOR_USERNAME=your-username
+TAKO_URL=https://tako.id/your-username
 ORDER_EXPIRY_MINUTES=15
 ```
 

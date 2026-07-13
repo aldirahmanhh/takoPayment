@@ -66,8 +66,8 @@ INTERNAL_API_KEY=random-internal-key
 DATABASE_URL="file:./dev.db"
 
 # Tako (change if using different creator)
-TAKO_CREATOR_USERNAME=anrizz
-TAKO_URL=https://tako.id/anrizz
+TAKO_CREATOR_USERNAME=your-username
+TAKO_URL=https://tako.id/your-username
 
 # Order expiry in minutes (default: 15)
 ORDER_EXPIRY_MINUTES=15
@@ -106,7 +106,7 @@ npm start
 2. User selects a product and clicks "Buy"
 3. Backend creates an `Order` + `PaymentIntent` with a unique payment code (e.g., `ORD-A8K2X9`)
 4. User is shown: "Donate IDR 10,000 to Tako with sender name: `ORD-A8K2X9`"
-5. User donates at `https://tako.id/anrizz` using the payment code as the sender name
+5. User donates at their Tako page using the payment code as the sender name
 6. Tako sends a Discord webhook notification to the configured channel
 7. Discord bot parses the embed, extracts the payment code and amount
 8. Bot forwards data to `POST /api/internal/tako-callback`
