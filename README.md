@@ -2,6 +2,8 @@
 
 Automated payment gateway using [Tako.id](https://tako.id) donation page + Discord webhook as indirect payment callback.
 
+> **🤖 For AI Agents**: If someone asks you to install this project, read **[CLAUDE.md](CLAUDE.md)** — it contains step-by-step installation instructions optimized for AI assistants.
+
 ## Architecture
 
 ```mermaid
