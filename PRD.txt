@@ -1,0 +1,286 @@
+Buatkan sistem payment gateway otomatis menggunakan Tako donation page + Discord webhook sebagai callback tidak langsung.
+
+Konteks:
+Saya punya halaman Tako:
+https://tako.id/anrizz
+
+Saat user ingin membeli produk di website atau mobile app, user klik tombol Beli. Setelah itu sistem otomatis membuat order pending, lalu user diarahkan ke halaman Tako saya untuk melakukan donation. Setelah user donate, Tako mengirim notifikasi ke Discord webhook. Bot Discord membaca pesan webhook tersebut, lalu mengirim data payment ke backend untuk memvalidasi order.
+
+Arsitektur:
+- Backend/API menjadi pusat sistem.
+- Web/app hanya membuat checkout dan menampilkan instruksi pembayaran.
+- Discord bot hanya membaca webhook Discord dari Tako.
+- Database menyimpan order, payment intent, payment log, dan fulfillment.
+- Discord webhook dianggap sebagai callback tidak langsung dari Tako.
+
+Flow utama:
+1. User login di website/app.
+2. User memilih produk.
+3. User klik tombol Beli.
+4. Frontend memanggil endpoint:
+   POST /api/checkout
+
+5. Backend membuat:
+   - order dengan status PENDING
+   - payment_intent dengan status PENDING
+   - payment_code / sender_name unik
+   - expected_amount
+   - expired_at
+
+6. Backend mengembalikan response checkout:
+   {
+     "order_id": "...",
+     "payment_intent_id": "...",
+     "amount": 10000,
+     "payment_code": "ORD-A8K2X9",
+     "tako_url": "https://tako.id/anrizz",
+     "instruction": "Silakan donate ke Tako sebesar IDR 10.000 dengan nama pengirim atau pesan: ORD-A8K2X9",
+     "expired_at": "..."
+   }
+
+7. Website/app menampilkan halaman instruksi pembayaran:
+   - Nominal: IDR 10.000
+   - Link pembayaran: https://tako.id/anrizz
+   - Nama pengirim / kode pembayaran: ORD-A8K2X9
+   - Tombol: Bayar Sekarang
+
+8. Saat user klik Bayar Sekarang:
+   - user diarahkan ke https://tako.id/anrizz
+   - website/app tetap bisa menampilkan halaman waiting payment
+   - frontend melakukan polling ke:
+     GET /api/orders/:order_id
+
+9. User melakukan donation di Tako dengan nominal sesuai order dan memasukkan kode unik pada nama pengirim atau pesan donation.
+
+10. Tako mengirim notifikasi donation ke channel Discord melalui webhook.
+
+11. Discord bot membaca pesan webhook Discord tersebut.
+
+Contoh format webhook Tako:
+"Siluman Taplak Meja mengirim IDR 10.000"
+
+Atau jika user memakai kode order:
+"ORD-A8K2X9 mengirim IDR 10.000"
+
+Bot harus membaca embed Discord dan mengekstrak:
+- discord_message_id
+- sender_name atau payment_code
+- amount
+- raw_payload
+
+12. Bot mengirim hasil parsing ke backend:
+POST /api/internal/tako-callback
+
+Payload:
+{
+  "discord_message_id": "123456789",
+  "sender_name": "ORD-A8K2X9",
+  "amount": 10000,
+  "raw_payload": {}
+}
+
+13. Backend memvalidasi payment:
+   - discord_message_id belum pernah diproses
+   - sender_name/payment_code cocok dengan payment_intent yang masih PENDING
+   - amount sama dengan expected_amount
+   - payment_intent belum expired
+   - order belum PAID
+   - pesan bukan pesan contoh/template
+   - webhook berasal dari channel Discord yang valid
+
+14. Jika valid:
+   - payment_intent menjadi PAID
+   - order menjadi PAID
+   - payment log disimpan dengan status SUCCESS
+   - fulfillment dijalankan
+   - produk/service otomatis diberikan ke user
+
+15. Jika tidak valid:
+   - simpan ke payment_logs
+   - status bisa menjadi:
+     - UNKNOWN_PAYMENT
+     - AMOUNT_MISMATCH
+     - EXPIRED_PAYMENT
+     - DUPLICATE
+     - IGNORED
+   - jangan aktifkan produk
+
+Pesan yang harus diabaikan:
+- pesan yang mengandung "Ini adalah pesan contoh"
+- pesan yang mengandung "Gunakan"
+- pesan template dari Tako
+- pesan yang bukan donation asli
+
+Parser nominal harus mendukung:
+- IDR 10.000
+- IDR 10000
+- Rp10.000
+- Rp 10.000
+
+Database schema minimal:
+
+1. users
+   - id
+   - email
+   - username
+   - created_at
+   - updated_at
+
+2. products
+   - id
+   - name
+   - description
+   - price
+   - type
+   - duration_days nullable
+   - is_active
+   - created_at
+   - updated_at
+
+3. orders
+   - id
+   - user_id
+   - product_id
+   - amount
+   - status: PENDING, PAID, EXPIRED, CANCELLED, FAILED
+   - created_at
+   - expired_at
+   - paid_at
+
+4. payment_intents
+   - id
+   - order_id
+   - user_id
+   - provider: TAKO
+   - payment_code
+   - expected_amount
+   - status: PENDING, PAID, EXPIRED, CANCELLED, FAILED
+   - created_at
+   - expired_at
+   - paid_at
+
+5. payment_logs
+   - id
+   - provider
+   - payment_intent_id nullable
+   - order_id nullable
+   - discord_message_id unique
+   - sender_name
+   - amount
+   - raw_payload
+   - status: SUCCESS, DUPLICATE, UNKNOWN_PAYMENT, AMOUNT_MISMATCH, EXPIRED_PAYMENT, IGNORED, FAILED
+   - created_at
+
+6. entitlements
+   - id
+   - user_id
+   - product_id
+   - order_id
+   - status: ACTIVE, EXPIRED, REVOKED
+   - starts_at
+   - ends_at nullable
+   - created_at
+
+Backend API endpoints:
+
+Auth:
+- POST /api/auth/register
+- POST /api/auth/login
+- GET /api/me
+
+Products:
+- GET /api/products
+- GET /api/products/:id
+
+Checkout:
+- POST /api/checkout
+  Request:
+  {
+    "product_id": "..."
+  }
+
+  Response:
+  {
+    "order_id": "...",
+    "payment_intent_id": "...",
+    "amount": 10000,
+    "payment_code": "ORD-A8K2X9",
+    "tako_url": "https://tako.id/anrizz",
+    "instruction": "Donate ke Tako sebesar IDR 10.000 dengan kode ORD-A8K2X9",
+    "expired_at": "..."
+  }
+
+Orders:
+- GET /api/orders/:order_id
+- GET /api/orders
+
+Internal callback dari Discord bot:
+- POST /api/internal/tako-callback
+
+Security:
+- Endpoint internal wajib menggunakan INTERNAL_API_KEY.
+- Discord bot mengirim header:
+  Authorization: Bearer INTERNAL_API_KEY
+- Backend menolak request tanpa API key valid.
+- Bot hanya membaca channel ID webhook Tako tertentu.
+- Bot hanya memproses pesan dari webhook ID / author ID Tako yang sudah di-whitelist.
+- Semua payment harus idempotent berdasarkan discord_message_id.
+- Jika discord_message_id sudah pernah diproses, jangan proses ulang.
+
+Discord bot:
+- Menggunakan discord.js v14.
+- Listen event messageCreate.
+- Cek apakah message berasal dari channel webhook Tako.
+- Cek apakah message berasal dari webhook Tako yang valid.
+- Baca embed title, description, dan fields.
+- Abaikan pesan contoh/template.
+- Parse sender_name/payment_code dan amount.
+- Kirim data ke backend endpoint /api/internal/tako-callback.
+- Bot tidak boleh langsung mengubah order atau memberikan produk.
+- Semua validasi utama dilakukan di backend.
+
+Fulfillment:
+- Setelah order menjadi PAID, panggil fulfillOrder(order_id).
+- Jika produk adalah premium subscription:
+  - buat entitlement ACTIVE
+  - starts_at = sekarang
+  - ends_at = sekarang + duration_days
+- Jika produk adalah digital item:
+  - assign item ke user
+- Fulfillment harus idempotent.
+- Jika order sudah pernah difulfill, jangan fulfill ulang.
+
+Frontend web/app:
+- User klik produk.
+- Frontend memanggil POST /api/checkout.
+- Frontend menampilkan instruksi pembayaran.
+- Frontend menyediakan tombol "Bayar Sekarang" yang membuka https://tako.id/anrizz.
+- Frontend melakukan polling GET /api/orders/:order_id setiap beberapa detik.
+- Jika order status menjadi PAID, tampilkan halaman sukses.
+- Jika expired, tampilkan pembayaran expired dan minta user membuat checkout baru.
+
+Stack:
+- Node.js
+- Express.js atau Fastify
+- discord.js v14
+- PostgreSQL
+- Prisma ORM
+- dotenv
+- JWT untuk auth web/app
+- Internal API Key untuk komunikasi Discord bot ke backend
+
+Buatkan kode lengkap:
+1. Backend API
+2. Prisma schema
+3. Service checkout
+4. Service payment intent
+5. Service Tako callback processor
+6. Service fulfillment
+7. Discord bot listener webhook Tako
+8. Parser embed Tako
+9. Validasi anti double payment
+10. Database transaction atomic
+11. Contoh .env
+12. Contoh frontend checkout sederhana
+13. Instruksi install dan menjalankan project
+14. Penjelasan alur kerja sistem

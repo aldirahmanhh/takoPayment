@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  username  String   @unique
+  password  String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  orders         Order[]
+  paymentIntents PaymentIntent[]
+  entitlements   Entitlement[]
+
+  @@map("users")
+}
+
+model Product {
+  id           String  @id @default(uuid())
+  name         String
+  description  String?
+  price        Int
+  type         String
+  durationDays Int?    @map("duration_days")
+  isActive     Boolean @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  orders       Order[]
+  entitlements Entitlement[]
+
+  @@map("products")
+}
+
+model Order {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  productId String   @map("product_id")
+  amount    Int
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now()) @map("created_at")
+  expiredAt DateTime @map("expired_at")
+  paidAt    DateTime? @map("paid_at")
+
+  user           User            @relation(fields: [userId], references: [id])
+  product        Product         @relation(fields: [productId], references: [id])
+  paymentIntents PaymentIntent[]
+  paymentLogs    PaymentLog[]
+  entitlements   Entitlement[]
+
+  @@map("orders")
+}
+
+model PaymentIntent {
+  id             String   @id @default(uuid())
+  orderId        String   @map("order_id")
+  userId         String   @map("user_id")
+  provider       String   @default("TAKO")
+  paymentCode    String   @map("payment_code")
+  expectedAmount Int      @map("expected_amount")
+  status         String   @default("PENDING")
+  createdAt      DateTime @default(now()) @map("created_at")
+  expiredAt      DateTime @map("expired_at")
+  paidAt         DateTime? @map("paid_at")
+
+  order       Order        @relation(fields: [orderId], references: [id])
+  user        User         @relation(fields: [userId], references: [id])
+  paymentLogs PaymentLog[]
+
+  @@unique([paymentCode, status])
+  @@map("payment_intents")
+}
+
+model PaymentLog {
+  id               String   @id @default(uuid())
+  provider         String   @default("TAKO")
+  paymentIntentId  String?  @map("payment_intent_id")
+  orderId          String?  @map("order_id")
+  discordMessageId String   @unique @map("discord_message_id")
+  senderName       String   @map("sender_name")
+  amount           Int
+  rawPayload       String   @map("raw_payload")
+  status           String
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  paymentIntent PaymentIntent? @relation(fields: [paymentIntentId], references: [id])
+  order         Order?         @relation(fields: [orderId], references: [id])
+
+  @@map("payment_logs")
+}
+
+model Entitlement {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  productId String   @map("product_id")
+  orderId   String   @map("order_id")
+  status    String   @default("ACTIVE")
+  startsAt  DateTime @map("starts_at")
+  endsAt    DateTime? @map("ends_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+  order   Order   @relation(fields: [orderId], references: [id])
+
+  @@map("entitlements")
+}

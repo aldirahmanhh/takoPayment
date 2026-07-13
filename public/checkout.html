@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bot Payment &mdash; Checkout</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0f0f0f;
+    --card: #1a1a1a;
+    --border: #2a2a2a;
+    --muted: #888;
+    --green: #10b981;
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --blue-hover: #2563eb;
+    --font: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: #e5e5e5;
+    font-family: var(--font);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  /* ── Spinner ── */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner {
+    width: 20px; height: 20px;
+    border: 2px solid var(--border);
+    border-top-color: var(--blue);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  /* ── Pulse for expiring ── */
+  @keyframes pulse-warn {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .pulse-warn { animation: pulse-warn 1s ease-in-out infinite; }
+
+  /* ── Transition helpers ── */
+  .section { display: none; }
+  .section.active { display: block; }
+
+  /* ── Badge ── */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .badge-green { background: rgba(16,185,129,0.15); color: var(--green); }
+  .badge-red { background: rgba(239,68,68,0.15); color: var(--red); }
+  .badge-blue { background: rgba(59,130,246,0.15); color: var(--blue); }
+
+  /* ── Code block ── */
+  .code-display {
+    font-family: var(--mono);
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--blue);
+    background: rgba(59,130,246,0.08);
+    border: 1px solid rgba(59,130,246,0.25);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    word-break: break-all;
+  }
+</style>
+</head>
+<body class="flex flex-col min-h-screen">
+
+<!-- ── Navbar ── -->
+<nav class="border-b border-[#2a2a2a] px-4 py-3 flex items-center justify-between" id="navbar">
+  <span class="font-semibold text-lg tracking-tight">Bot<span class="text-[#3b82f6]">Payment</span></span>
+  <div id="auth-area"></div>
+</nav>
+
+<!-- ── Main ── -->
+<main class="flex-1 max-w-2xl mx-auto w-full px-4 py-8">
+
+  <!-- ══ SECTION: Auth Forms ══ -->
+  <div id="section-auth" class="section"></div>
+
+  <!-- ══ SECTION: Products ══ -->
+  <div id="section-products" class="section"></div>
+
+  <!-- ══ SECTION: Checkout / Payment Instructions ══ -->
+  <div id="section-checkout" class="section"></div>
+
+  <!-- ══ SECTION: Success ══ -->
+  <div id="section-success" class="section"></div>
+
+  <!-- ══ SECTION: Expired ══ -->
+  <div id="section-expired" class="section"></div>
+
+</main>
+
+<script>
+// ────────────────────────────────────────────────────
+//  State
+// ────────────────────────────────────────────────────
+const LS_TOKEN = 'jwt_token';
+let token = localStorage.getItem(LS_TOKEN) || null;
+let user = null;
+let products = [];
+let currentOrder = null;   // { order_id, payment_code, amount, expired_at, tako_url }
+let currentProduct = null; // the product object being purchased
+let pollTimer = null;
+let countdownTimer = null;
+
+// ────────────────────────────────────────────────────
+//  Helpers
+// ────────────────────────────────────────────────────
+function $id(id) { return document.getElementById(id); }
+function Q(sel, root) { return (root || document).querySelector(sel); }
+function QA(sel, root) { return (root || document).querySelectorAll(sel); }
+
+const API = (path, opts = {}) =>
+  fetch(path, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(opts.headers || {}),
+    },
+    ...opts,
+  }).then(async r => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    return data;
+  });
+
+function formatIDR(n) {
+  return 'IDR ' + Number(n).toLocaleString('id-ID');
+}
+
+function parseISO(s) { return new Date(s).getTime(); }
+
+function show(el) { el.classList.add('active'); }
+function hide(el) { el.classList.remove('active'); }
+function hideAll() {
+  QA('.section').forEach(hide);
+}
+
+// ────────────────────────────────────────────────────
+//  Auth UI
+// ────────────────────────────────────────────────────
+function renderAuthArea() {
+  const area = $id('auth-area');
+  if (!area) return;
+  if (user) {
+    area.innerHTML = `
+      <div class="flex items-center gap-3">
+        <span class="text-sm text-[#888]">@${esc(user.username)}</span>
+        <button onclick="logout()" class="text-sm text-[#888] hover:text-[#ef4444] transition-colors">Keluar</button>
+      </div>`;
+  } else {
+    area.innerHTML = `
+      <div class="flex gap-2">
+        <button onclick="showAuth('login')" class="px-3 py-1.5 text-sm rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] hover:border-[#3b82f6] transition-colors">Login</button>
+        <button onclick="showAuth('register')" class="px-3 py-1.5 text-sm rounded-lg bg-[#3b82f6] text-white hover:bg-[#2563eb] transition-colors">Register</button>
+      </div>`;
+  }
+}
+
+function showAuth(mode) {
+  hideAll();
+  const s = $id('section-auth');
+  const isLogin = mode === 'login';
+  s.innerHTML = `
+    <div class="max-w-sm mx-auto mt-12">
+      <h2 class="text-xl font-semibold mb-6">${isLogin ? 'Login' : 'Register'}</h2>
+      <form id="auth-form" class="space-y-4">
+        ${!isLogin ? `<div>
+          <label class="block text-sm text-[#888] mb-1">Username</label>
+          <input name="username" type="text" required class="w-full bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#3b82f6] transition-colors" placeholder="username">
+        </div>` : ''}
+        <div>
+          <label class="block text-sm text-[#888] mb-1">Email</label>
+          <input name="email" type="email" required class="w-full bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#3b82f6] transition-colors" placeholder="email@example.com">
+        </div>
+        <div>
+          <label class="block text-sm text-[#888] mb-1">Password</label>
+          <input name="password" type="password" required class="w-full bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#3b82f6] transition-colors" placeholder="••••••">
+        </div>
+        <div id="auth-error" class="text-[#ef4444] text-sm hidden"></div>
+        <button type="submit" class="w-full py-2 rounded-lg bg-[#3b82f6] text-white font-medium hover:bg-[#2563eb] transition-colors">
+          ${isLogin ? 'Login' : 'Register'}
+        </button>
+      </form>
+      <p class="text-sm text-[#888] mt-4 text-center">
+        ${isLogin ? "Belum punya akun? <button onclick=\"showAuth('register')\" class='text-[#3b82f6] hover:underline'>Register</button>" 
+                   : "Sudah punya akun? <button onclick=\"showAuth('login')\" class='text-[#3b82f6] hover:underline'>Login</button>"}
+      </p>
+    </div>`;
+  show(s);
+
+  $id('auth-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const errEl = $id('auth-error');
+    errEl.classList.add('hidden');
+    try {
+      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+      const data = await API(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(Object.fromEntries(fd)),
+      });
+      if (isLogin) {
+        token = data.token;
+        localStorage.setItem(LS_TOKEN, token);
+        user = data.user;
+        renderAuthArea();
+        loadProducts();
+      } else {
+        // after register, auto-login
+        token = null;
+        showAuth('login');
+      }
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('hidden');
+    }
+  });
+}
+
+function logout() {
+  token = null;
+  user = null;
+  currentOrder = null;
+  currentProduct = null;
+  localStorage.removeItem(LS_TOKEN);
+  clearPolling();
+  clearCountdown();
+  renderAuthArea();
+  loadProducts();
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ────────────────────────────────────────────────────
+//  Products
+// ────────────────────────────────────────────────────
+async function loadProducts() {
+  hideAll();
+  const s = $id('section-products');
+  s.innerHTML = '<div class="flex items-center justify-center py-20"><div class="spinner"></div></div>';
+  show(s);
+
+  try {
+    const data = await API('/api/products');
+    products = data.products || [];
+
+    if (products.length === 0) {
+      s.innerHTML = `
+        <div class="text-center py-20">
+          <div class="text-4xl mb-4">📦</div>
+          <h2 class="text-lg font-semibold mb-2">Belum ada produk</h2>
+          <p class="text-[#888] text-sm">Silakan hubungi admin untuk menambahkan produk.</p>
+        </div>`;
+      return;
+    }
+
+    renderProducts();
+  } catch (err) {
+    s.innerHTML = `
+      <div class="text-center py-20">
+        <div class="text-4xl mb-4">⚠️</div>
+        <h2 class="text-lg font-semibold mb-2">Gagal memuat produk</h2>
+        <p class="text-[#888] text-sm mb-4">${esc(err.message)}</p>
+        <button onclick="loadProducts()" class="px-4 py-2 rounded-lg bg-[#3b82f6] text-white text-sm hover:bg-[#2563eb] transition-colors">Coba Lagi</button>
+      </div>`;
+  }
+}
+
+function renderProducts() {
+  const s = $id('section-products');
+  s.innerHTML = `
+    <h2 class="text-xl font-semibold mb-6">Pilih Produk</h2>
+    <div class="grid gap-4 sm:grid-cols-2" id="product-grid"></div>`;
+
+  const grid = $id('product-grid');
+  products.forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-5 flex flex-col gap-3 transition-colors hover:border-[#3b82f6]/40';
+    card.innerHTML = `
+      <div class="flex-1">
+        <h3 class="font-semibold text-base">${esc(p.name)}</h3>
+        ${p.description ? `<p class="text-[#888] text-sm mt-1">${esc(p.description)}</p>` : ''}
+        ${p.type ? `<span class="badge badge-blue mt-2 inline-block">${esc(p.type)}</span>` : ''}
+        ${p.durationDays ? `<span class="badge badge-green mt-2 inline-block ml-1">${p.durationDays} hari</span>` : ''}
+      </div>
+      <div class="flex items-center justify-between pt-2 border-t border-[#2a2a2a]">
+        <span class="font-semibold text-lg">${formatIDR(p.price)}</span>
+        <button onclick="startCheckout('${p.id}')" class="px-4 py-2 rounded-lg bg-[#3b82f6] text-white text-sm font-medium hover:bg-[#2563eb] transition-colors ${!user ? 'opacity-50 cursor-not-allowed' : ''}" ${!user ? 'disabled' : ''}>
+          Beli
+        </button>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+// ────────────────────────────────────────────────────
+//  Checkout
+// ────────────────────────────────────────────────────
+async function startCheckout(productId) {
+  if (!token) {
+    showAuth('login');
+    return;
+  }
+
+  hideAll();
+  const s = $id('section-checkout');
+  s.innerHTML = '<div class="flex items-center justify-center py-20"><div class="spinner"></div></div>';
+  show(s);
+
+  try {
+    const data = await API('/api/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ product_id: productId }),
+    });
+
+    currentOrder = data;
+    currentProduct = products.find(p => p.id === productId);
+    renderCheckout();
+    startPolling(data.order_id);
+    startCountdown(data.expired_at);
+  } catch (err) {
+    s.innerHTML = `
+      <div class="text-center py-20">
+        <div class="text-4xl mb-4">⚠️</div>
+        <h2 class="text-lg font-semibold mb-2">Gagal checkout</h2>
+        <p class="text-[#888] text-sm mb-4">${esc(err.message)}</p>
+        <button onclick="loadProducts()" class="px-4 py-2 rounded-lg bg-[#3b82f6] text-white text-sm hover:bg-[#2563eb] transition-colors">Kembali</button>
+      </div>`;
+  }
+}
+
+function renderCheckout() {
+  const s = $id('section-checkout');
+  if (!currentOrder) return;
+
+  s.innerHTML = `
+    <div class="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-6 space-y-6">
+      <!-- Header -->
+      <div>
+        <h2 class="text-lg font-semibold mb-1">Checkout</h2>
+        <p class="text-[#888] text-sm">${esc(currentProduct?.name || 'Produk')}</p>
+      </div>
+
+      <!-- Nominal -->
+      <div class="bg-[#0f0f0f] rounded-lg p-4 border border-[#2a2a2a]">
+        <span class="text-[#888] text-xs uppercase tracking-wide">Nominal</span>
+        <div class="text-2xl font-bold mt-1">${formatIDR(currentOrder.amount)}</div>
+      </div>
+
+      <!-- Payment Code -->
+      <div>
+        <span class="text-[#888] text-xs uppercase tracking-wide">Kode Pembayaran</span>
+        <div class="flex items-center gap-3 mt-2">
+          <span class="code-display flex-1" id="payment-code-text">${esc(currentOrder.payment_code)}</span>
+          <button onclick="copyCode()" id="copy-btn" class="px-3 py-2 rounded-lg bg-[#2a2a2a] text-sm hover:bg-[#3a3a3a] transition-colors shrink-0" title="Salin kode">📋</button>
+        </div>
+      </div>
+
+      <!-- Instruction -->
+      <div class="bg-[#0f0f0f] border border-[#2a2a2a] rounded-lg p-4">
+        <p class="text-sm">${esc(currentOrder.instruction || 'Silakan donate ke Tako dengan memasukkan kode di atas sebagai nama pengirim')}</p>
+      </div>
+
+      <!-- Tako Button -->
+      <a href="${currentOrder.tako_url || 'https://tako.id/anrizz'}" target="_blank" rel="noopener"
+         class="block w-full text-center py-3 rounded-lg bg-[#10b981] text-white font-semibold hover:bg-[#059669] transition-colors">
+        Bayar Sekarang di Tako &rarr;
+      </a>
+
+      <!-- Status & Timer -->
+      <div class="flex items-center justify-between border-t border-[#2a2a2a] pt-4">
+        <div class="flex items-center gap-2">
+          <div class="spinner"></div>
+          <span class="text-sm text-[#888]">Menunggu pembayaran...</span>
+        </div>
+        <div class="text-sm font-mono" id="countdown">--:--</div>
+      </div>
+    </div>`;
+}
+
+async function copyCode() {
+  if (!currentOrder) return;
+  try {
+    await navigator.clipboard.writeText(currentOrder.payment_code);
+    const btn = $id('copy-btn');
+    if (btn) {
+      btn.textContent = '✅';
+      setTimeout(() => { btn.textContent = '📋'; }, 2000);
+    }
+  } catch {
+    // fallback
+    const el = $id('payment-code-text');
+    if (!el) return;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+}
+
+// ────────────────────────────────────────────────────
+//  Countdown
+// ────────────────────────────────────────────────────
+function startCountdown(expiredAt) {
+  clearCountdown();
+  const target = parseISO(expiredAt);
+
+  function tick() {
+    const now = Date.now();
+    const diff = Math.max(0, target - now);
+    const el = $id('countdown');
+    if (!el) { clearCountdown(); return; }
+
+    const m = Math.floor(diff / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    el.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+
+    if (diff <= 60000) {
+      el.classList.add('pulse-warn', 'text-[#ef4444]');
+    }
+
+    if (diff <= 0) {
+      clearCountdown();
+      clearPolling();
+      showExpired();
+    }
+  }
+
+  tick();
+  countdownTimer = setInterval(tick, 1000);
+}
+
+function clearCountdown() {
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+}
+
+// ────────────────────────────────────────────────────
+//  Polling
+// ────────────────────────────────────────────────────
+function startPolling(orderId) {
+  clearPolling();
+
+  async function poll() {
+    try {
+      const data = await API(`/api/orders/${orderId}`);
+      const order = data.order;
+      if (!order) return;
+
+      if (order.status === 'PAID') {
+        clearPolling();
+        clearCountdown();
+        showSuccess(order);
+      } else if (order.status === 'EXPIRED' || order.status === 'CANCELLED') {
+        clearPolling();
+        clearCountdown();
+        showExpired();
+      }
+    } catch (err) {
+      // 401? token stale. just keep polling silently.
+      if (err.message.includes('401') || err.message.includes('403')) {
+        clearPolling();
+        clearCountdown();
+      }
+    }
+  }
+
+  pollTimer = setInterval(poll, 3000);
+}
+
+function clearPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+// ────────────────────────────────────────────────────
+//  Success
+// ────────────────────────────────────────────────────
+function showSuccess(order) {
+  hideAll();
+  const s = $id('section-success');
+  s.innerHTML = `
+    <div class="text-center py-12 space-y-6">
+      <div class="w-20 h-20 mx-auto rounded-full bg-[rgba(16,185,129,0.15)] flex items-center justify-center">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      </div>
+      <h2 class="text-2xl font-bold">Pembayaran Berhasil!</h2>
+      <div class="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-5 space-y-3 text-left max-w-sm mx-auto">
+        <div class="flex justify-between text-sm">
+          <span class="text-[#888]">Produk</span>
+          <span>${esc(currentProduct?.name || '—')}</span>
+        </div>
+        <div class="flex justify-between text-sm">
+          <span class="text-[#888]">Jumlah</span>
+          <span class="font-semibold">${formatIDR(order.amount || currentOrder?.amount || 0)}</span>
+        </div>
+        <div class="flex justify-between text-sm">
+          <span class="text-[#888]">Order ID</span>
+          <span class="font-mono text-xs">${esc(order.id)}</span>
+        </div>
+        <div class="flex justify-between text-sm">
+          <span class="text-[#888]">Status</span>
+          <span class="badge badge-green">PAID</span>
+        </div>
+      </div>
+      <button onclick="resetToProducts()" class="px-6 py-2.5 rounded-lg bg-[#3b82f6] text-white font-medium hover:bg-[#2563eb] transition-colors">
+        Kembali ke Produk
+      </button>
+    </div>`;
+  show(s);
+}
+
+// ────────────────────────────────────────────────────
+//  Expired
+// ────────────────────────────────────────────────────
+function showExpired() {
+  hideAll();
+  const s = $id('section-expired');
+  s.innerHTML = `
+    <div class="text-center py-12 space-y-6">
+      <div class="w-20 h-20 mx-auto rounded-full bg-[rgba(239,68,68,0.15)] flex items-center justify-center">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </div>
+      <h2 class="text-2xl font-bold">Pembayaran Kedaluwarsa</h2>
+      <p class="text-[#888] text-sm">Waktu pembayaran telah habis. Silakan buat checkout baru.</p>
+      <button onclick="resetToProducts()" class="px-6 py-2.5 rounded-lg bg-[#3b82f6] text-white font-medium hover:bg-[#2563eb] transition-colors">
+        Buat Checkout Baru
+      </button>
+    </div>`;
+  show(s);
+}
+
+function resetToProducts() {
+  currentOrder = null;
+  currentProduct = null;
+  clearPolling();
+  clearCountdown();
+  loadProducts();
+}
+
+// ────────────────────────────────────────────────────
+//  Startup
+// ────────────────────────────────────────────────────
+async function init() {
+  renderAuthArea();
+
+  // Check existing token
+  if (token) {
+    try {
+      const data = await API('/api/auth/me');
+      user = data.user;
+      renderAuthArea();
+    } catch {
+      // token invalid
+      token = null;
+      user = null;
+      localStorage.removeItem(LS_TOKEN);
+      renderAuthArea();
+    }
+  }
+
+  loadProducts();
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Dashboard — Bot Payment</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          bg: '#0f0f0f',
+          card: '#1a1a1a',
+          accent: '#10b981',
+          'accent-dim': '#065f46',
+          border: '#2a2a2a',
+          muted: '#888',
+        }
+      }
+    }
+  }
+</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; background: #0f0f0f; color: #e0e0e0; min-height: 100vh; }
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+  .font-mono { font-family: 'JetBrains Mono', monospace; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #0f0f0f; }
+  ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  }
+  .modal-overlay.active { opacity: 1; pointer-events: auto; }
+
+  .tab-btn { padding: 0.5rem 1.25rem; font-size: 0.875rem; font-weight: 500; border-radius: 8px; transition: all 0.15s; color: #888; cursor: pointer; background: transparent; border: none; }
+  .tab-btn:hover { color: #e0e0e0; background: #ffffff08; }
+  .tab-btn.active { color: #10b981; background: #10b98115; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 0.75rem 1rem; font-size: 0.75rem; font-weight: 600; color: #666; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #2a2a2a; }
+  td { padding: 0.75rem 1rem; font-size: 0.875rem; border-bottom: 1px solid #1e1e1e; }
+  tr:hover td { background: #ffffff03; }
+
+  input, select, textarea {
+    width: 100%; padding: 0.6rem 0.75rem; background: #0f0f0f; border: 1px solid #2a2a2a;
+    border-radius: 8px; color: #e0e0e0; font-size: 0.875rem; outline: none; transition: border-color 0.15s;
+    font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus { border-color: #10b981; }
+  textarea { resize: vertical; min-height: 80px; }
+
+  .badge { display: inline-flex; align-items: center; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+
+  .toast {
+    position: fixed; bottom: 1.5rem; right: 1.5rem; padding: 0.75rem 1.25rem;
+    border-radius: 10px; font-size: 0.85rem; font-weight: 500; z-index: 200;
+    opacity: 0; transform: translateY(10px); transition: all 0.25s;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.success { background: #10b98120; border: 1px solid #10b98140; color: #10b981; }
+  .toast.error { background: #ef444420; border: 1px solid #ef444440; color: #ef4444; }
+</style>
+</head>
+<body class="min-h-screen bg-bg">
+
+<!-- Auth overlay -->
+<div id="auth-overlay" class="fixed inset-0 bg-bg z-50 flex items-center justify-center p-4">
+  <div class="bg-card border border-border rounded-2xl p-8 w-full max-w-md">
+    <div class="text-center mb-6">
+      <h1 class="text-xl font-bold text-white">Admin Dashboard</h1>
+      <p class="text-muted text-sm mt-1">Bot Payment — Tako Gateway</p>
+    </div>
+
+    <!-- Login form -->
+    <form id="login-form" class="space-y-4">
+      <div>
+        <label class="block text-xs font-medium text-muted mb-1.5">Email</label>
+        <input type="email" id="login-email" placeholder="admin@example.com" required>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-muted mb-1.5">Password</label>
+        <input type="password" id="login-password" placeholder="••••••••" required>
+      </div>
+      <button type="submit" class="w-full py-2.5 bg-accent text-white font-semibold rounded-lg hover:bg-accent-dim transition-colors text-sm border-none cursor-pointer">
+        Masuk
+      </button>
+      <p class="text-center text-xs text-muted">
+        Belum punya akun?
+        <button type="button" id="show-register" class="text-accent hover:underline bg-transparent border-none cursor-pointer">Daftar</button>
+      </p>
+    </form>
+
+    <!-- Register form (hidden by default) -->
+    <form id="register-form" class="space-y-4 hidden">
+      <div>
+        <label class="block text-xs font-medium text-muted mb-1.5">Email</label>
+        <input type="email" id="reg-email" placeholder="admin@example.com" required>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-muted mb-1.5">Username</label>
+        <input type="text" id="reg-username" placeholder="admin" required>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-muted mb-1.5">Password</label>
+        <input type="password" id="reg-password" placeholder="min 6 karakter" required minlength="6">
+      </div>
+      <button type="submit" class="w-full py-2.5 bg-accent text-white font-semibold rounded-lg hover:bg-accent-dim transition-colors text-sm border-none cursor-pointer">
+        Daftar
+      </button>
+      <p class="text-center text-xs text-muted">
+        Sudah punya akun?
+        <button type="button" id="show-login" class="text-accent hover:underline bg-transparent border-none cursor-pointer">Masuk</button>
+      </p>
+    </form>
+
+    <div id="auth-error" class="mt-4 text-sm text-red-400 text-center hidden"></div>
+  </div>
+</div>
+
+<!-- Main dashboard (hidden until auth) -->
+<div id="dashboard" class="hidden">
+  <!-- Header -->
+  <header class="bg-card border-b border-border sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <h1 class="text-lg font-bold text-white">Admin Dashboard</h1>
+        <nav class="hidden sm:flex items-center gap-1">
+          <button class="tab-btn active" data-tab="products">Produk</button>
+          <button class="tab-btn" data-tab="orders">Pesanan</button>
+          <button class="tab-btn" data-tab="payment-logs">Payment Logs</button>
+        </nav>
+      </div>
+      <div class="flex items-center gap-3">
+        <span id="admin-user" class="text-sm text-muted hidden sm:inline"></span>
+        <button onclick="doLogout()" class="text-xs text-muted hover:text-red-400 transition-colors bg-transparent border border-border rounded-lg px-3 py-1.5 cursor-pointer">Logout</button>
+      </div>
+    </div>
+    <!-- Mobile tabs -->
+    <nav class="sm:hidden px-4 pb-3 flex gap-1 overflow-x-auto">
+      <button class="tab-btn active flex-shrink-0" data-tab="products">Produk</button>
+      <button class="tab-btn flex-shrink-0" data-tab="orders">Pesanan</button>
+      <button class="tab-btn flex-shrink-0" data-tab="payment-logs">Payment Logs</button>
+    </nav>
+  </header>
+
+  <!-- Content -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+
+    <!-- PRODUCTS TAB -->
+    <section id="tab-products" class="tab-content">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-base font-semibold text-white">Daftar Produk</h2>
+        <button onclick="openProductModal()" class="bg-accent text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-accent-dim transition-colors cursor-pointer border-none">
+          + Tambah Produk
+        </button>
+      </div>
+      <div class="bg-card border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Nama</th>
+                <th>Harga</th>
+                <th>Tipe</th>
+                <th>Durasi</th>
+                <th>Status</th>
+                <th class="text-right">Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="products-tbody">
+              <tr><td colspan="6" class="text-center text-muted py-8">Memuat...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ORDERS TAB -->
+    <section id="tab-orders" class="tab-content hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <h2 class="text-base font-semibold text-white">Daftar Pesanan</h2>
+        <div class="flex items-center gap-2">
+          <label class="text-xs text-muted">Status:</label>
+          <select id="order-status-filter" onchange="loadOrders()" class="w-auto py-1.5 px-3 text-sm">
+            <option value="">Semua</option>
+            <option value="PENDING">PENDING</option>
+            <option value="PAID">PAID</option>
+            <option value="EXPIRED">EXPIRED</option>
+            <option value="CANCELLED">CANCELLED</option>
+          </select>
+        </div>
+      </div>
+      <div class="bg-card border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Order ID</th>
+                <th>User</th>
+                <th>Produk</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Dibuat</th>
+                <th>Dibayar</th>
+              </tr>
+            </thead>
+            <tbody id="orders-tbody">
+              <tr><td colspan="7" class="text-center text-muted py-8">Memuat...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- PAYMENT LOGS TAB -->
+    <section id="tab-payment-logs" class="tab-content hidden">
+      <div class="mb-4">
+        <h2 class="text-base font-semibold text-white">Payment Logs</h2>
+        <p class="text-xs text-muted mt-1">Log dari callback Tako payment</p>
+      </div>
+      <div class="bg-card border border-border rounded-xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Discord Msg ID</th>
+                <th>Pengirim</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Dibuat</th>
+              </tr>
+            </thead>
+            <tbody id="logs-tbody">
+              <tr><td colspan="5" class="text-center text-muted py-8">Memuat...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- PRODUCT MODAL -->
+<div id="product-modal" class="modal-overlay">
+  <div class="bg-card border border-border rounded-2xl p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+    <h3 id="modal-title" class="text-lg font-semibold text-white mb-4">Tambah Produk</h3>
+    <form id="product-form" class="space-y-4">
+      <input type="hidden" id="prod-id">
+      <div>
+        <label class="block text-xs font-medium text-muted mb-1.5">Nama Produk</label>
+        <input type="text" id="prod-name" placeholder="Role Booster Diamond" required>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-muted mb-1.5">Deskripsi</label>
+        <textarea id="prod-desc" placeholder="Deskripsi singkat produk..."></textarea>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-muted mb-1.5">Harga (IDR)</label>
+          <input type="number" id="prod-price" placeholder="50000" min="1" required>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-muted mb-1.5">Tipe</label>
+          <select id="prod-type" required>
+            <option value="">Pilih tipe...</option>
+            <option value="TOPUP">TOPUP</option>
+            <option value="SUBSCRIPTION">SUBSCRIPTION</option>
+            <option value="SERVICE">SERVICE</option>
+            <option value="OTHER">OTHER</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-muted mb-1.5">Durasi (hari) <span class="text-muted">— opsional</span></label>
+        <input type="number" id="prod-duration" placeholder="30" min="1">
+      </div>
+      <div class="flex items-center gap-3 pt-2">
+        <button type="button" onclick="closeProductModal()" class="flex-1 py-2.5 text-sm font-medium text-muted bg-transparent border border-border rounded-lg hover:bg-white/5 transition-colors cursor-pointer">
+          Batal
+        </button>
+        <button type="submit" class="flex-1 py-2.5 text-sm font-semibold text-white bg-accent rounded-lg hover:bg-accent-dim transition-colors cursor-pointer border-none">
+          Simpan
+        </button>
+      </div>
+    </form>
+    <div id="modal-error" class="mt-3 text-sm text-red-400 text-center hidden"></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast"></div>
+
+<script>
+// ====== API ======
+const API = (path, opts = {}) => {
+  const token = localStorage.getItem('token');
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return fetch(path, { ...opts, headers }).then(async r => {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    return data;
+  });
+};
+
+const fmtIDR = (n) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+const fmtDate = (s) => s ? new Date(s).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+
+function orderStatusBadge(s) {
+  const map = {
+    PENDING: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
+    PAID: 'bg-green-500/15 text-green-400 border-green-500/30',
+    EXPIRED: 'bg-red-500/15 text-red-400 border-red-500/30',
+    CANCELLED: 'bg-gray-500/15 text-gray-400 border-gray-500/30',
+  };
+  const cls = map[s] || 'bg-gray-500/15 text-gray-400 border-gray-500/30';
+  return `<span class="badge border ${cls}">${s}</span>`;
+}
+
+function paymentLogStatusBadge(s) {
+  const map = {
+    SUCCESS: 'bg-green-500/15 text-green-400 border-green-500/30',
+    DUPLICATE: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
+    UNKNOWN_PAYMENT: 'bg-gray-500/15 text-gray-400 border-gray-500/30',
+    AMOUNT_MISMATCH: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
+    EXPIRED_PAYMENT: 'bg-red-500/15 text-red-400 border-red-500/30',
+    IGNORED: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+    FAILED: 'bg-red-500/15 text-red-400 border-red-500/30',
+  };
+  const cls = map[s] || 'bg-gray-500/15 text-gray-400 border-gray-500/30';
+  return `<span class="badge border ${cls}">${s.replace(/_/g, ' ')}</span>`;
+}
+
+function toast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast ${type} show`;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ====== AUTH ======
+function doLogout() {
+  localStorage.removeItem('token');
+  document.getElementById('auth-overlay').classList.remove('hidden');
+  document.getElementById('dashboard').classList.add('hidden');
+}
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('auth-error');
+  errEl.classList.add('hidden');
+  try {
+    const data = await API('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: document.getElementById('login-email').value,
+        password: document.getElementById('login-password').value,
+      }),
+    });
+    localStorage.setItem('token', data.token);
+    document.getElementById('admin-user').textContent = data.user.username || data.user.email;
+    document.getElementById('auth-overlay').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+    loadProducts();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  }
+});
+
+document.getElementById('register-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('auth-error');
+  errEl.classList.add('hidden');
+  try {
+    await API('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: document.getElementById('reg-email').value,
+        username: document.getElementById('reg-username').value,
+        password: document.getElementById('reg-password').value,
+      }),
+    });
+    toast('Registrasi berhasil! Silakan login.', 'success');
+    document.getElementById('register-form').classList.add('hidden');
+    document.getElementById('login-form').classList.remove('hidden');
+    document.getElementById('login-email').value = document.getElementById('reg-email').value;
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  }
+});
+
+document.getElementById('show-register').addEventListener('click', () => {
+  document.getElementById('auth-error').classList.add('hidden');
+  document.getElementById('login-form').classList.add('hidden');
+  document.getElementById('register-form').classList.remove('hidden');
+});
+
+document.getElementById('show-login').addEventListener('click', () => {
+  document.getElementById('auth-error').classList.add('hidden');
+  document.getElementById('register-form').classList.add('hidden');
+  document.getElementById('login-form').classList.remove('hidden');
+});
+
+// Check existing token on load
+(async () => {
+  const token = localStorage.getItem('token');
+  if (!token) return;
+  try {
+    const data = await API('/api/auth/me');
+    document.getElementById('admin-user').textContent = data.user.username || data.user.email;
+    document.getElementById('auth-overlay').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+    loadProducts();
+  } catch {
+    localStorage.removeItem('token');
+  }
+})();
+
+// ====== TAB NAVIGATION ======
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+    const tab = btn.dataset.tab;
+    document.getElementById(`tab-${tab}`).classList.remove('hidden');
+    if (tab === 'products') loadProducts();
+    else if (tab === 'orders') loadOrders();
+    else if (tab === 'payment-logs') loadPaymentLogs();
+  });
+});
+
+// ====== PRODUCTS ======
+async function loadProducts() {
+  const tbody = document.getElementById('products-tbody');
+  try {
+    const { products } = await API('/api/admin/products');
+    if (!products.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-8">Belum ada produk</td></tr>';
+      return;
+    }
+    tbody.innerHTML = products.map(p => `
+      <tr>
+        <td class="font-medium text-white">${esc(p.name)}</td>
+        <td>${fmtIDR(p.price)}</td>
+        <td><span class="text-xs bg-white/5 px-2 py-0.5 rounded">${esc(p.type)}</span></td>
+        <td>${p.durationDays ? p.durationDays + ' hari' : '—'}</td>
+        <td>
+          <button onclick="toggleProduct('${p.id}')" class="badge border cursor-pointer border-none ${p.isActive ? 'bg-green-500/15 text-green-400 border-green-500/30' : 'bg-gray-500/15 text-gray-400 border-gray-500/30'}">
+            ${p.isActive ? 'ACTIVE' : 'INACTIVE'}
+          </button>
+        </td>
+        <td class="text-right">
+          <div class="flex items-center justify-end gap-2">
+            <button onclick="editProduct('${p.id}')" class="text-xs bg-white/5 hover:bg-white/10 text-white px-2.5 py-1 rounded-md transition-colors border-none cursor-pointer">Edit</button>
+            <button onclick="deleteProduct('${p.id}')" class="text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 px-2.5 py-1 rounded-md transition-colors border-none cursor-pointer">Hapus</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-red-400 py-8">Gagal memuat: ${esc(err.message)}</td></tr>`;
+  }
+}
+
+function openProductModal(product) {
+  document.getElementById('modal-title').textContent = product ? 'Edit Produk' : 'Tambah Produk';
+  document.getElementById('prod-id').value = product ? product.id : '';
+  document.getElementById('prod-name').value = product ? product.name : '';
+  document.getElementById('prod-desc').value = product ? (product.description || '') : '';
+  document.getElementById('prod-price').value = product ? product.price : '';
+  document.getElementById('prod-type').value = product ? product.type : '';
+  document.getElementById('prod-duration').value = product ? (product.durationDays || '') : '';
+  document.getElementById('modal-error').classList.add('hidden');
+  document.getElementById('product-modal').classList.add('active');
+}
+
+function closeProductModal() {
+  document.getElementById('product-modal').classList.remove('active');
+}
+
+document.getElementById('product-modal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeProductModal();
+});
+
+document.getElementById('product-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('modal-error');
+  errEl.classList.add('hidden');
+  const id = document.getElementById('prod-id').value;
+  const body = {
+    name: document.getElementById('prod-name').value,
+    description: document.getElementById('prod-desc').value || undefined,
+    price: parseInt(document.getElementById('prod-price').value),
+    type: document.getElementById('prod-type').value,
+    duration_days: document.getElementById('prod-duration').value ? parseInt(document.getElementById('prod-duration').value) : undefined,
+  };
+
+  try {
+    if (id) {
+      await API(`/api/admin/products/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+      toast('Produk diperbarui');
+    } else {
+      await API('/api/admin/products', { method: 'POST', body: JSON.stringify(body) });
+      toast('Produk ditambahkan');
+    }
+    closeProductModal();
+    loadProducts();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.classList.remove('hidden');
+  }
+});
+
+async function editProduct(id) {
+  try {
+    const { product } = await API(`/api/admin/products/${id}`);
+    openProductModal(product);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function deleteProduct(id) {
+  if (!confirm('Yakin hapus produk ini?')) return;
+  try {
+    await API(`/api/admin/products/${id}`, { method: 'DELETE' });
+    toast('Produk dihapus');
+    loadProducts();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function toggleProduct(id) {
+  try {
+    await API(`/api/admin/products/${id}/toggle`, { method: 'PATCH' });
+    loadProducts();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+// ====== ORDERS ======
+async function loadOrders() {
+  const tbody = document.getElementById('orders-tbody');
+  const status = document.getElementById('order-status-filter').value;
+  const qs = status ? `?status=${status}` : '';
+  try {
+    const { orders } = await API(`/api/admin/orders${qs}`);
+    if (!orders.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-8">Tidak ada pesanan</td></tr>';
+      return;
+    }
+    tbody.innerHTML = orders.map(o => `
+      <tr>
+        <td class="font-mono text-xs text-accent">${esc(o.id).slice(0, 12)}...</td>
+        <td>${esc(o.user?.username || o.user?.email || (o.userId ? o.userId.slice(0, 8) : '—'))}</td>
+        <td>${esc(o.product?.name || (o.productId ? o.productId.slice(0, 8) : '—'))}</td>
+        <td class="font-mono text-sm">${fmtIDR(o.amount)}</td>
+        <td>${orderStatusBadge(o.status)}</td>
+        <td class="text-xs text-muted">${fmtDate(o.createdAt)}</td>
+        <td class="text-xs text-muted">${fmtDate(o.paidAt)}</td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center text-red-400 py-8">Gagal memuat: ${esc(err.message)}</td></tr>`;
+  }
+}
+
+// ====== PAYMENT LOGS ======
+async function loadPaymentLogs() {
+  const tbody = document.getElementById('logs-tbody');
+  try {
+    const { logs } = await API('/api/admin/payment-logs');
+    if (!logs || !logs.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-8">Tidak ada log</td></tr>';
+      return;
+    }
+    tbody.innerHTML = logs.map(l => `
+      <tr>
+        <td class="font-mono text-xs">${esc(l.discordMessageId || l.discord_message_id).slice(0, 24)}...</td>
+        <td>${esc(l.senderName || l.sender_name)}</td>
+        <td class="font-mono text-sm">${fmtIDR(l.amount)}</td>
+        <td>${paymentLogStatusBadge(l.status)}</td>
+        <td class="text-xs text-muted">${fmtDate(l.createdAt || l.created_at)}</td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-red-400 py-8">Gagal memuat: ${esc(err.message)}</td></tr>`;
+  }
+}
+
+// ====== HELPERS ======
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+</script>
+
+</body>
+</html>
