@@ -4,21 +4,18 @@ Automated payment gateway using [Tako.id](https://tako.id) donation page + Disco
 
 ## Architecture
 
-> Open **`docs/architecture.excalidraw`** in [Excalidraw](https://excalidraw.com) to view and edit the interactive diagram.
-
-The architecture diagram shows 6 boxes (User, Backend, Tako, Discord, Bot, Database) with numbered arrows illustrating the full payment flow.
-
+```mermaid
+flowchart LR
+    A[👤 User<br/>Frontend] -->|① POST /api/checkout| B[⚙️ Backend API<br/>Express + Prisma]
+    A -->|② Donate with<br/>payment code| C[💰 Tako.id<br/>Donation Page]
+    C -->|③ Webhook| D[💬 Discord<br/>Channel]
+    D -->|④ Read embed| E[🤖 Discord Bot<br/>discord.js v14]
+    E -->|⑤ POST /api/internal<br/>tako-callback| B
+    B -->|⑥ Validate + Store| F[(🗄️ SQLite<br/>Database)]
+    A -.->|🔄 Poll GET<br/>/api/orders/:id| B
 ```
-User Checkout (Frontend) → Backend API → User donates on Tako
-                                          ↓
-                             Discord webhook notification
-                                          ↓
-                            Discord bot parses embed
-                                          ↓
-                       Bot forwards data to Backend API
-                                          ↓
-                         Backend validates + fulfills
-```
+
+### Payment Flow
 
 ## Features
 
